@@ -1,0 +1,349 @@
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import QrScanner from '@/components/QrScanner.vue'
+import FaceCamera from '@/components/FaceCamera.vue'
+import GeofenceMap from '@/components/GeofenceMap.vue'
+import { Html5Qrcode } from 'html5-qrcode'
+import { decryptQrPayload, haversineDistance, isWithinTime, type QrPayload } from '@/services/crypto'
+import { isEventEnded, isEventNotStarted } from '@/utils/eventTime'
+import { useAttendanceStore } from '@/stores/attendanceStore'
+import { useAuthStore } from '@/stores/authStore'
+import { isFaceEnrolled, getFaceEnrollmentLocal, type FaceDescriptor } from '@/services/face'
+
+const router = useRouter()
+const attendanceStore = useAttendanceStore()
+const authStore = useAuthStore()
+
+type PageState = 'idle' | 'scanning' | 'verifying' | 'decrypting' | 'preview' | 'success' | 'error'
+const state = ref<PageState>('idle')
+const message = ref('')
+const qrPayload = ref<QrPayload | null>(null)
+const pendingQr = ref<string | null>(null)
+const verifyingDescriptors = ref<FaceDescriptor[]>([])
+const verifyingRunId = ref(0)
+const userLat = ref<number | null>(null)
+const userLng = ref<number | null>(null)
+const distance = ref<number | null>(null)
+const withinGeofence = ref(false)
+const withinTime = ref(false)
+const eventEnded = ref(false)
+const eventNotStarted = ref(false)
+const saving = ref(false)
+const online = ref(navigator.onLine)
+const gettingLocation = ref(false)
+let gpsWatch: number | null = null
+
+onMounted(async () => {
+  if (!navigator.onLine) {
+    online.value = false
+  }
+  const user = authStore.user
+  if (user && !(await isFaceEnrolled(user.id))) {
+    router.push({ name: 'security-face-enroll', query: { next: 'scanner' } })
+  }
+})
+
+onUnmounted(() => {
+  if (gpsWatch != null) navigator.geolocation.clearWatch(gpsWatch)
+})
+
+async function handleUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  state.value = 'decrypting'
+  const el = document.createElement('div')
+  el.id = `upload-${Date.now()}`
+  document.body.appendChild(el)
+  const qr = new Html5Qrcode(el.id)
+  try {
+    const decoded = await qr.scanFile(file, true)
+    await handleScan(decoded)
+  } catch {
+    state.value = 'error'
+    message.value = 'No QR code found in image'
+  } finally {
+    qr.clear()
+    el.remove()
+  }
+}
+
+function captureGps(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) {
+      resolve()
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userLat.value = pos.coords.latitude
+        userLng.value = pos.coords.longitude
+        resolve()
+      },
+      () => resolve(),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+    )
+  })
+}
+
+function startWatchingLocation() {
+  if (!('geolocation' in navigator)) return
+  if (userLat.value != null) return
+  gettingLocation.value = true
+  gpsWatch = navigator.geolocation.watchPosition(
+    (pos) => {
+      userLat.value = pos.coords.latitude
+      userLng.value = pos.coords.longitude
+      gettingLocation.value = false
+      if (gpsWatch != null) { navigator.geolocation.clearWatch(gpsWatch); gpsWatch = null }
+      updateDistance()
+    },
+    () => {},
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+  )
+}
+
+function updateDistance() {
+  if (!qrPayload.value || userLat.value == null || userLng.value == null) return
+  if (!qrPayload.value.latitude || !qrPayload.value.longitude || !qrPayload.value.geofence_radius) return
+  distance.value = haversineDistance(userLat.value, userLng.value, qrPayload.value.latitude, qrPayload.value.longitude)
+  withinGeofence.value = distance.value <= qrPayload.value.geofence_radius
+}
+
+async function handleScan(data: string) {
+  pendingQr.value = data
+
+  const user = authStore.user
+  if (!user || (await isFaceEnrolled(user.id))) {
+    const enrollment = user ? await getFaceEnrollmentLocal(user.id) : null
+    verifyingDescriptors.value = enrollment?.descriptors ?? []
+  } else {
+    state.value = 'error'
+    message.value = 'Enroll your face first in Settings → Security.'
+    return
+  }
+
+  if (verifyingDescriptors.value.length === 0) {
+    state.value = 'error'
+    message.value = 'No face profile found on this device. Re-enroll your face in Security.'
+    return
+  }
+
+  verifyingRunId.value++
+  state.value = 'verifying'
+}
+
+function faceVerified() {
+  const data = pendingQr.value
+  if (data) continueDecrypt(data)
+}
+
+function faceFailed(detail: string) {
+  state.value = 'error'
+  message.value = detail
+}
+
+async function continueDecrypt(data: string) {
+  await new Promise(r => setTimeout(r, 100))
+  state.value = 'decrypting'
+
+  const payload = await decryptQrPayload(data)
+  if (!payload) {
+    state.value = 'error'
+    message.value = 'Invalid QR code. This QR was not generated by LuxMap.'
+    return
+  }
+
+  qrPayload.value = payload
+  withinTime.value = payload.valid_time_from && payload.valid_time_until ? isWithinTime(payload.valid_time_from, payload.valid_time_until) : true
+  eventEnded.value = isEventEnded(payload.event_date, payload.time_to)
+  eventNotStarted.value = payload.time_from ? isEventNotStarted(payload.event_date, payload.time_from) : false
+
+  await captureGps()
+
+  if (userLat.value != null && userLng.value != null && payload.latitude != null && payload.longitude != null && payload.geofence_radius != null) {
+    distance.value = haversineDistance(userLat.value, userLng.value, payload.latitude, payload.longitude)
+    withinGeofence.value = (distance.value as number) <= payload.geofence_radius
+  }
+
+  state.value = 'preview'
+  startWatchingLocation()
+}
+
+async function confirmAttendance(offline: boolean) {
+  if (!qrPayload.value || saving.value) return
+  saving.value = true
+  const scannedAt = new Date().toISOString()
+
+  try {
+    if (!offline && navigator.onLine) {
+      await attendanceStore.scanOnline({ qr_configuration_id: qrPayload.value.qr_config_id, scanned_at: scannedAt })
+      state.value = 'success'
+      message.value = 'Attendance marked!'
+      setTimeout(() => router.push({ name: 'dashboard' }), 2000)
+    } else {
+      const queuedId = await attendanceStore.scanOffline({
+        qr_configuration_id: qrPayload.value.qr_config_id,
+        user_id: authStore.user?.id ?? 0,
+        scanned_at: scannedAt,
+        qr_payload: { ...qrPayload.value } as unknown as Record<string, unknown>,
+      })
+      state.value = 'success'
+      message.value = queuedId === 0
+        ? 'Attendance already saved offline'
+        : 'Saved offline — will sync when online'
+      setTimeout(() => router.push({ name: 'dashboard' }), 2000)
+    }
+  } catch (e: any) {
+    state.value = 'error'
+    message.value = e?.response?.data?.message || 'Failed to record attendance'
+  } finally {
+    saving.value = false
+  }
+}
+
+function reset() {
+  state.value = 'idle'
+  qrPayload.value = null
+  userLat.value = null
+  userLng.value = null
+  distance.value = null
+}
+
+function formatDate(d: string) {
+  return new Date(d + 'T12:00:00').toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+function formatTime12(t: string) {
+  const d = new Date(t)
+  const h = d.getHours()
+  const m = d.getMinutes()
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+function time12hQuick(t: string) {
+  const [h, m] = t.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+</script>
+
+<template>
+  <div class="flex flex-col items-center justify-center min-h-dvh px-4 py-16">
+    <h2 v-if="state !== 'preview'" class="text-lg font-bold text-gray-900 mb-4">Scan QR Code</h2>
+
+    <div v-if="state === 'idle' || state === 'scanning'" class="flex flex-col items-center w-full max-w-sm">
+      <QrScanner @scan="handleScan" @error="message = $event" class="w-full" />
+      <p class="text-center text-sm text-gray-500 mt-3">Point your camera at the event QR code</p>
+      <div class="mt-4">
+        <input type="file" accept="image/*" class="hidden" id="upload-qr" @change="handleUpload">
+        <label for="upload-qr" class="inline-flex items-center gap-2 rounded-xl bg-white border-2 border-primary-600 px-5 py-3 text-sm font-semibold text-primary-700 shadow-sm cursor-pointer hover:bg-primary-50 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          Upload Attendance QR
+        </label>
+      </div>
+    </div>
+
+    <div v-else-if="state === 'verifying'" class="w-full max-w-sm space-y-3">
+      <h2 class="text-lg font-bold text-gray-900">Verify Identity</h2>
+      <p class="text-sm text-gray-500">Blink when prompted to confirm your attendance.</p>
+      <FaceCamera
+        :key="verifyingRunId"
+        mode="verify"
+        :user-id="authStore.user?.id ?? 0"
+        :enrolled="verifyingDescriptors"
+        @success="faceVerified"
+        @error="faceFailed"
+        @cancel="reset"
+      />
+      <button
+        @click="reset"
+        class="w-full rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-600"
+      >
+        Cancel
+      </button>
+    </div>
+
+    <div v-else-if="state === 'decrypting'" class="text-center py-12">
+      <div class="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto"></div>
+      <p class="text-sm text-gray-500 mt-2">Validating QR code...</p>
+    </div>
+
+    <div v-else-if="state === 'preview' && qrPayload" class="w-full max-w-sm space-y-4">
+      <h2 class="text-lg font-bold text-gray-900">Attendance Preview</h2>
+
+      <GeofenceMap
+        :model-value="{ lat: qrPayload!.latitude ?? 8.065254, lng: qrPayload!.longitude ?? 123.756733, radius: qrPayload!.geofence_radius ?? 100 }"
+        :readonly="true"
+        :user-lat="userLat"
+        :user-lng="userLng"
+      />
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm space-y-2">
+        <p class="font-bold text-gray-900 text-[15px]">{{ qrPayload!.event_title }}</p>
+        <p class="text-sm text-gray-500">{{ formatDate(qrPayload!.event_date) }}{{ qrPayload!.venue ? ' · ' + qrPayload!.venue : '' }}</p>
+        <p class="text-sm text-gray-500">{{ qrPayload!.type === 'time_in' ? 'Time In' : 'Time Out' }} · {{ formatTime12(qrPayload!.valid_from) }} – {{ formatTime12(qrPayload!.valid_until) }}</p>
+      </div>
+
+      <div v-if="gettingLocation" class="flex items-center gap-2 text-sm text-blue-500">
+        <div class="w-4 h-4 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
+        Getting location...
+      </div>
+      <div class="space-y-2">
+        <div v-if="eventNotStarted" class="flex items-center gap-2 text-sm text-amber-500">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Event Not Yet Started — check in at {{ formatTime12(qrPayload!.valid_from) }}
+        </div>
+        <div v-if="eventEnded" class="flex items-center gap-2 text-sm text-red-500">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Event Ended — attendance is closed for this date
+        </div>
+        <div v-if="userLat != null && qrPayload!.geofence_radius" class="flex items-center gap-2 text-sm" :class="withinGeofence ? 'text-green-600' : 'text-red-500'">
+          <svg v-if="withinGeofence" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          {{ withinGeofence ? 'Within the Allowed Area' : 'Outside the Allowed Area' }}
+          ({{ Math.round(distance ?? 0) }}m / {{ qrPayload!.geofence_radius }}m)
+        </div>
+        <div class="flex items-center gap-2 text-sm" :class="withinTime ? 'text-green-600' : 'text-red-500'">
+          <svg v-if="withinTime" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          <span v-if="withinTime">Attendance Open</span>
+          <span v-else>Outside QR Validity ({{ time12hQuick(qrPayload!.valid_time_from) }} – {{ time12hQuick(qrPayload!.valid_time_until) }})</span>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <p class="text-xs text-center text-gray-400">
+          <span v-if="online" class="text-green-600 font-medium">● Online</span>
+          <span v-else class="text-red-500 font-medium">● Offline</span>
+        </p>
+        <button @click="confirmAttendance(false)" :disabled="saving || eventNotStarted || eventEnded || !withinTime || (qrPayload?.geofence_radius != null && !withinGeofence) || gettingLocation || !online" class="w-full rounded-xl bg-primary-700 py-3.5 text-sm font-semibold text-white disabled:opacity-50">
+          {{ saving ? 'Saving...' : 'Submit Now' }}
+        </button>
+        <button @click="confirmAttendance(true)" :disabled="saving || eventNotStarted || eventEnded || !withinTime || (qrPayload?.geofence_radius != null && !withinGeofence) || gettingLocation" class="w-full rounded-xl border border-primary-600 py-3 text-sm font-medium text-primary-700 disabled:opacity-50">
+          Save & Sync Later
+        </button>
+        <button @click="reset" class="w-full rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-600">Cancel</button>
+      </div>
+    </div>
+
+    <div v-else-if="state === 'success'" class="bg-green-50 border border-green-200 rounded-xl p-6 text-center w-full max-w-sm">
+      <svg class="w-12 h-12 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <p class="text-green-800 font-medium mt-2">{{ message }}</p>
+    </div>
+
+    <div v-else-if="state === 'error'" class="bg-red-50 border border-red-200 rounded-xl p-6 text-center w-full max-w-sm">
+      <svg class="w-12 h-12 text-red-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <p class="text-red-800 font-medium mt-2">{{ message }}</p>
+      <button @click="reset" class="mt-3 bg-red-600 text-white text-sm px-4 py-2 rounded-lg font-medium">Try Again</button>
+    </div>
+  </div>
+</template>
