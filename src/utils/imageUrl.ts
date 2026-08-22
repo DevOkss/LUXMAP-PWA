@@ -1,10 +1,11 @@
+import { API_URL } from '@/config/app'
+
 export function resolveImageUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined
   if (/^https?:\/\//i.test(url)) return url
 
-  const apiBase = import.meta.env.VITE_API_URL as string | undefined
-  if (apiBase) {
-    const origin = apiBase.replace(/\/api\/?$/, '')
+  if (API_URL && API_URL !== '/api') {
+    const origin = API_URL.replace(/\/api\/?$/, '')
     return origin + url
   }
 

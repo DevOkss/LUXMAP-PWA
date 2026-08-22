@@ -1,3 +1,5 @@
+import { QR_KEY } from '@/config/app'
+
 export interface QrPayload {
   event_id: number
   qr_config_id: number
@@ -36,7 +38,7 @@ export function base64ToBytes(b64: string): Uint8Array {
 
 export async function decryptQrPayload(base64: string): Promise<QrPayload | null> {
   try {
-    const keyHex = import.meta.env.VITE_QR_KEY
+    const keyHex = QR_KEY
     if (!keyHex) throw new Error('QR key not configured')
     if (keyHex.length !== 64) throw new Error('QR key must be 32 bytes (64 hex chars), got ' + keyHex.length)
 
@@ -53,7 +55,7 @@ export async function decryptQrPayload(base64: string): Promise<QrPayload | null
     const json = new TextDecoder().decode(decrypted)
     return JSON.parse(json) as QrPayload
   } catch (e: any) {
-    console.error('QR decrypt error:', e?.message || e, 'key length:', import.meta.env.VITE_QR_KEY?.length)
+    console.error('QR decrypt error:', e?.message || e, 'key length:', QR_KEY?.length)
     return null
   }
 }
