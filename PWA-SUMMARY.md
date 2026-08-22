@@ -1,6 +1,33 @@
 # PWA-SOMS — Vue 3 Student Mobile App
 
-## Latest Session (August 10, 2026) — security-gate hardening, offline scanner map, PWA install + deploy prep
+## Latest Session (August 22, 2026) — face verification hardened, verify-on-open, env fallbacks fix the Vercel 405
+
+> Backend pairing in `SOMS/SOMS-SUMMARY.md` ("production launch on Hostinger VPS"). The system is LIVE: PWA at `https://luxmap-topaz.vercel.app`, API at `https://luxmap.devokss.online`.
+
+### Face verification false-accept fixed (another person could pass before)
+- **Root cause**: `MATCH_DISTANCE = 0.55` with **min-distance over enrolled samples** and a weak 1–2 sample template — same-person descriptors land ~0.35–0.45, different people ~0.50–0.65+, so 0.55 accepted lookalikes.
+- **`src/services/face.ts`** changes:
+  - `MATCH_DISTANCE` 0.55 → **0.45**.
+  - `matchesEnrolled()` now uses **consensus**: average distance ≤ threshold AND at least half the enrolled samples individually under it (a single lucky sample can no longer pass).
+  - `euclideanDistance()` returns `Infinity` on length mismatch instead of silently truncating.
+  - Enrollment captures **3 samples** over a 3 s window with 250 ms gaps (progress shown as "n/3"); if fewer than 3 good samples arrive it keeps retrying within the burst instead of saving a weak template.
+- Backend pairing: `FaceController::enroll` enforces `descriptors.min:3` server-side.
+
+### Face verification now required per app open — not per refresh
+- `securityStore.ts` `verified` flag moved from memory-only to **`sessionStorage`** (`soms_face_verified`): survives page refreshes/navigations but is wiped when the app/tab closes.
+- Behavior: fresh app open → face verify; refresh mid-app → no re-prompt; logout/login still reset it (`resetVerified()`/`clear()` also clear storage); **QR scanning always runs its own live verification per scan** (unchanged, independent of this flag).
+
+### 405 on login fixed — centralized env config with production fallbacks
+- **Symptom**: deployed PWA posted to its own origin (`/api/login` → 405 from static hosting) because `VITE_API_URL` wasn't set in the Vercel build.
+- **New `src/config/app.ts`**: single source for `API_URL`, `QR_KEY`, `VAPID_PUBLIC_KEY`. Env vars override; production builds fall back to the deployed backend (`https://luxmap.devokss.online/api`, server QR key, server VAPID public key) so deploys without configured env vars just work. Dev keeps `/api` + no key unless env provides them.
+- Consumers updated: `services/api.ts` (baseURL), `utils/imageUrl.ts` (storage-asset prefixing), `services/crypto.ts` (QR decrypt), `services/push.ts` (push subscription).
+- Note: the QR key ships inside the client bundle by design (the PWA decrypts QR payloads locally via Web Crypto) — it is functional, not secret. If you prefer not to commit it in source, set `VITE_QR_KEY` in Vercel and remove the fallback.
+
+### Deployment notes
+- Vercel auto-deploys on push to `DevOkss/LUXMAP-PWA` main. Verified live bundle contains the API host + keys; CORS preflight + POST against the API return correct headers/422 validation JSON from the PWA origin.
+- Backend deployment (Hostinger VPS, CI/CD via GitHub Actions) is documented in `SOMS/SOMS-SUMMARY.md`.
+
+## Previous Session (August 10, 2026) — security-gate hardening, offline scanner map, PWA install + deploy prep
 
 > Backend pairing in `SOMS/SOMS-SUMMARY.md` ("single active session + PWA install landing page + deploy readiness"). This session focused on the PWA experience around face/device gating, offline scanning, and installability.
 
