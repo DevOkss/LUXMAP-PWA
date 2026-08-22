@@ -11,7 +11,7 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      includeAssets: ['favicon.svg', 'icons/icon-192x192.png', 'icons/icon-512x512.png', 'bg.webp'],
+      includeAssets: ['favicon.svg', 'icons/luxmap.ico', 'icons/luxmap.png', 'bg.webp'],
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
@@ -42,9 +42,9 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         icons: [
-          { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/icons/luxmap.png', sizes: '1254x1254', type: 'image/png' },
+          { src: '/icons/luxmap.png', sizes: '1254x1254', type: 'image/png', purpose: 'maskable' },
+          { src: '/icons/luxmap.ico', sizes: 'any', type: 'image/x-icon' },
         ],
       },
     }),

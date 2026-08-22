@@ -17,9 +17,10 @@ import {
 export const useSecurityStore = defineStore('security', () => {
   const info = ref<SecurityGateInfo | null>(null)
   const loading = ref(false)
-  // Session-scoped: a face verify is required after every fresh login. Kept in
-  // memory only so a page refresh re-prompts, matching "verify on every login".
-  const verified = ref(false)
+  // Survives page refreshes (sessionStorage) but is wiped when the app/tab is
+  // closed, so a face verify is required on every fresh app open — not on
+  // every reload. QR scanning always verifies per-scan regardless of this.
+  const verified = ref(sessionStorage.getItem('soms_face_verified') === '1')
 
   async function resolve(userId: number, opts: { force?: boolean } = {}): Promise<SecurityGateInfo> {
     if (!opts.force && info.value) return info.value
@@ -43,15 +44,18 @@ export const useSecurityStore = defineStore('security', () => {
 
   function markVerified(): void {
     verified.value = true
+    sessionStorage.setItem('soms_face_verified', '1')
   }
 
   function resetVerified(): void {
     verified.value = false
+    sessionStorage.removeItem('soms_face_verified')
   }
 
   function clear(): void {
     info.value = null
     verified.value = false
+    sessionStorage.removeItem('soms_face_verified')
     clearCachedSecurityGate()
   }
 

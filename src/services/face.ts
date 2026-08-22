@@ -12,10 +12,12 @@ const EAR_BASELINE_DECAY = 0.99
 const EAR_DIP_RATIO = 0.90
 const EAR_DROP_DELTA = 0.04
 const DISTANCE_HOLD_FRAMES = 4
-const MATCH_DISTANCE = 0.55
+const MATCH_DISTANCE = 0.45
 const MIN_BLINKS = 1
 const BURST_MS = 9000
-const ENROLL_SAMPLES = 2
+const ENROLL_SAMPLES = 3
+const ENROLL_EXTRA_WINDOW_MS = 3000
+const ENROLL_SAMPLE_GAP_MS = 250
 const LANDMARKS_INPUT_SIZE = 160
 
 const DBG = (...args: unknown[]) => console.log('[FACE]', ...args)
@@ -27,9 +29,9 @@ export interface FaceEnrollmentRecord {
 }
 
 export function euclideanDistance(a: FaceDescriptor, b: FaceDescriptor): number {
+  if (a.length !== b.length) return Infinity
   let sum = 0
-  const len = Math.min(a.length, b.length)
-  for (let i = 0; i < len; i++) {
+  for (let i = 0; i < a.length; i++) {
     const d = a[i] - b[i]
     sum += d * d
   }
@@ -254,8 +256,13 @@ export async function waitForVideo(video: HTMLVideoElement, timeoutMs = 10000): 
 
 function matchesEnrolled(descriptor: FaceDescriptor, enrolled: FaceDescriptor[]): boolean {
   if (enrolled.length === 0) return false
-  const distance = Math.min(...enrolled.map((e) => euclideanDistance(e, descriptor)))
-  return distance <= MATCH_DISTANCE
+  // Consensus instead of best-case: the average distance must be within the
+  // threshold AND at least half of the enrolled samples must individually be
+  // under it. A single lucky sample can no longer produce a false accept.
+  const distances = enrolled.map((e) => euclideanDistance(e, descriptor))
+  const avg = distances.reduce((sum, d) => sum + d, 0) / distances.length
+  const underThreshold = distances.filter((d) => d <= MATCH_DISTANCE).length
+  return avg <= MATCH_DISTANCE && underThreshold >= Math.ceil(enrolled.length / 2)
 }
 
 function sleep(ms: number): Promise<void> {
@@ -417,31 +424,39 @@ export async function runFaceBurst(
           onStatus?.('Face did not match — hold still')
           await sleep(100)
         } else {
-          DBG('capturing enrollment samples')
-          onStatus?.('Face captured — saving…')
           const samples: FaceDescriptor[] = [raw]
+          DBG('capturing enrollment samples')
+          onStatus?.(`Face captured — saving… (${samples.length}/${ENROLL_SAMPLES})`)
           const extraStart = Date.now()
-          while (samples.length < ENROLL_SAMPLES && Date.now() - extraStart < 1500) {
+          while (samples.length < ENROLL_SAMPLES && Date.now() - extraStart < ENROLL_EXTRA_WINDOW_MS) {
+            await sleep(ENROLL_SAMPLE_GAP_MS)
             const d = await detectFaceDescriptor(video)
             if (d) {
               samples.push(Array.from(d.descriptor))
+              onStatus?.(`Face captured — saving… (${samples.length}/${ENROLL_SAMPLES})`)
             }
-            await sleep(80)
           }
-          DBG(`saving ${samples.length} descriptors locally`)
-          await saveFaceEnrollmentLocal(userId, samples)
-          try {
-            await uploadFaceEnrollment(userId, samples)
-            DBG('uploaded enrollment to server')
-          } catch (e) {
-            DBG('upload FAILED (offline ok)', e)
-          }
-          DBG('ENROLL SUCCESS')
-          return {
-            success: true,
-            reason: 'Face enrolled',
-            descriptors: samples,
-            blinksDetected,
+          if (samples.length < ENROLL_SAMPLES) {
+            // A weak template (1-2 near-identical frames) raises both false
+            // accepts and rejects — keep trying within the burst instead.
+            DBG(`only ${samples.length}/${ENROLL_SAMPLES} enrollment samples so far — retrying`)
+            onStatus?.('Need a clearer sample — hold still')
+          } else {
+            DBG(`saving ${samples.length} descriptors locally`)
+            await saveFaceEnrollmentLocal(userId, samples)
+            try {
+              await uploadFaceEnrollment(userId, samples)
+              DBG('uploaded enrollment to server')
+            } catch (e) {
+              DBG('upload FAILED (offline ok)', e)
+            }
+            DBG('ENROLL SUCCESS')
+            return {
+              success: true,
+              reason: 'Face enrolled',
+              descriptors: samples,
+              blinksDetected,
+            }
           }
         }
       } else {
