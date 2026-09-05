@@ -1,6 +1,10 @@
 # PWA-SOMS — Vue 3 Student Mobile App
 
-## Latest Session (August 22, 2026) — face verification hardened, verify-on-open, env fallbacks fix the Vercel 405
+## Latest Session (September 5, 2026) — shared-VPS infra fixes; DEPLOYMENT.md added
+
+> **No PWA code changes.** Production incidents on the backend VPS were fixed (details in `SOMS/SOMS-SUMMARY.md` + `AVILA/labsync/DEPLOYMENT.md`): luxmap TLS vhost restored (cert errors), and a sibling-app cookie leak (`SESSION_DOMAIN=.devokss.online`) that caused "419 Page Expired" on POSTs across subdomains. If API calls suddenly fail with 419s or TLS errors, suspect the VPS proxy/certs — not this app. New **`DEPLOYMENT.md`** (repo root) documents the Vercel env contract (`VITE_API_URL`, `VITE_QR_KEY` ↔ backend `QR_ENCRYPTION_KEY`, `VITE_VAPID_PUBLIC_KEY`, CORS origin pairing).
+
+## Previous Session (August 22, 2026) — face verification hardened, verify-on-open, env fallbacks fix the Vercel 405
 
 > Backend pairing in `SOMS/SOMS-SUMMARY.md` ("production launch on Hostinger VPS"). The system is LIVE: PWA at `https://luxmap-topaz.vercel.app`, API at `https://luxmap.devokss.online`.
 
