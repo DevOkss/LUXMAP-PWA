@@ -215,6 +215,31 @@ const infoRows = computed(() => {
       </div>
     </button>
 
+    <!-- Request Shift -->
+    <button
+      @click="router.push({ name: 'shift-request' })"
+      class="w-full rounded-3xl bg-white p-5 text-left shadow-sm transition-colors hover:bg-gray-50"
+    >
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50">
+            <svg class="h-5 w-5 text-amber-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M22 11l-3-3m0 0l-3 3m3-3v8" />
+            </svg>
+          </span>
+          <div>
+            <p class="text-sm font-semibold text-gray-900">Request Shift</p>
+            <p class="text-xs text-gray-500">Move to another institute or program</p>
+          </div>
+        </div>
+        <svg class="h-5 w-5 text-gray-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7" />
+        </svg>
+      </div>
+    </button>
+
     <!-- Sign out -->
     <button
       @click="handleLogout"

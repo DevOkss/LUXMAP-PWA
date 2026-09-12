@@ -143,6 +143,12 @@ const router = createRouter({
           meta: { back: 'Dashboard', backRoute: 'dashboard' },
         },
         {
+          path: 'shift',
+          name: 'shift-request',
+          component: () => import('@/pages/shift/Request.vue'),
+          meta: { back: 'Profile', backRoute: 'profile' },
+        },
+        {
           path: 'security',
           name: 'security',
           component: () => import('@/pages/security/Index.vue'),
