@@ -1,4 +1,4 @@
-import { getDeviceFingerprint, checkDeviceStatus, getCachedDeviceBinding } from '@/services/device'
+import { getDeviceFingerprint, checkDeviceStatusDetailed, getCachedDeviceBinding, isSimilarDevice } from '@/services/device'
 import { isFaceEnrolled } from '@/services/face'
 
 export type SecurityGateResult =
@@ -20,6 +20,7 @@ const CACHE_TTL_MS = 60_000
 
 export interface CachedSecurityGate {
   userId: number
+  fingerprint: string
   info: SecurityGateInfo
   checkedAt: number
 }
@@ -37,10 +38,21 @@ export interface CachedSecurityGate {
 export async function runSecurityGate(userId: number): Promise<SecurityGateInfo> {
   const fingerprint = await getDeviceFingerprint()
 
-  let binding = null
+  let binding: Awaited<ReturnType<typeof getCachedDeviceBinding>> = null
+  let isTrusted = false
+  let isSimilar = false
+
   if (navigator.onLine) {
     try {
-      binding = await checkDeviceStatus()
+      const detailed = await checkDeviceStatusDetailed()
+      binding = detailed.binding
+      isTrusted = detailed.is_trusted
+      isSimilar = detailed.is_similar
+      // Fallback client-side similarity check if server didn't flag similar but metas are close
+      if (!isSimilar && binding?.device_meta) {
+        const { getDeviceMeta } = await import('@/services/device')
+        isSimilar = isSimilarDevice(binding.device_meta, getDeviceMeta())
+      }
     } catch {
       binding = await getCachedDeviceBinding()
     }
@@ -53,7 +65,12 @@ export async function runSecurityGate(userId: number): Promise<SecurityGateInfo>
 
   const faceEnrolled = await isFaceEnrolled(userId)
   const bindingExists = !!binding
-  const boundToCurrentDevice = !!binding && binding.device_fingerprint === fingerprint
+  // Hybrid: same physical device but different browser/incognito now counts as bound
+  // if the backend says trusted or similar (coarse hardware class matches).
+  // isSimilar alone still requires face enrollment, but we treat it as bound for gate
+  // so user goes to face-verify instead of transfer.
+  const boundToCurrentDevice =
+    (!!binding && binding.device_fingerprint === fingerprint) || isTrusted || isSimilar
 
   let decision: SecurityGateResult
   if (!faceEnrolled) {
@@ -74,22 +91,32 @@ export async function runSecurityGate(userId: number): Promise<SecurityGateInfo>
   }
 }
 
-export function getCachedSecurityGate(userId: number): SecurityGateInfo | null {
+export async function getCachedSecurityGate(userId: number): Promise<SecurityGateInfo | null> {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as CachedSecurityGate
     if (parsed.userId !== userId) return null
     if (Date.now() - parsed.checkedAt > CACHE_TTL_MS) return null
+    // Invalidate cache if fingerprint changed (e.g., same phone different browser)
+    // This ensures a cross-browser login doesn't reuse a stale 'transfer' decision.
+    try {
+      const currentFp = await getDeviceFingerprint()
+      if (parsed.fingerprint && parsed.fingerprint !== currentFp) return null
+    } catch {
+      /* if we can't read fingerprint, be safe and invalidate */
+      return null
+    }
     return parsed.info
   } catch {
     return null
   }
 }
 
-export function setCachedSecurityGate(userId: number, info: SecurityGateInfo): void {
+export async function setCachedSecurityGate(userId: number, info: SecurityGateInfo): Promise<void> {
   try {
-    const payload: CachedSecurityGate = { userId, info, checkedAt: Date.now() }
+    const fp = await getDeviceFingerprint()
+    const payload: CachedSecurityGate = { userId, fingerprint: fp, info, checkedAt: Date.now() }
     localStorage.setItem(CACHE_KEY, JSON.stringify(payload))
   } catch {
     /* private mode / storage disabled — the in-memory store still works */

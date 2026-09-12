@@ -25,7 +25,7 @@ export const useSecurityStore = defineStore('security', () => {
   async function resolve(userId: number, opts: { force?: boolean } = {}): Promise<SecurityGateInfo> {
     if (!opts.force && info.value) return info.value
 
-    const cached = getCachedSecurityGate(userId)
+    const cached = await getCachedSecurityGate(userId)
     if (!opts.force && cached) {
       info.value = cached
       return cached
@@ -35,7 +35,7 @@ export const useSecurityStore = defineStore('security', () => {
     try {
       const result = await runSecurityGate(userId)
       info.value = result
-      setCachedSecurityGate(userId, result)
+      await setCachedSecurityGate(userId, result)
       return result
     } finally {
       loading.value = false

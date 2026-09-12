@@ -34,10 +34,18 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   // Device binding/face endpoints identify the calling device via this header.
   // (Dynamic import avoids a circular dependency between api.ts and device.ts.)
   try {
-    const { getDeviceFingerprint } = await import('@/services/device')
+    const { getDeviceFingerprint, getDeviceMeta } = await import('@/services/device')
     const fingerprint = await getDeviceFingerprint()
     if (fingerprint) {
       config.headers['X-Device-Fingerprint'] = fingerprint
+    }
+    try {
+      const meta = getDeviceMeta()
+      if (meta) {
+        config.headers['X-Device-Meta'] = JSON.stringify(meta)
+      }
+    } catch {
+      /* meta optional */
     }
   } catch {
     /* header is optional on non-device requests */

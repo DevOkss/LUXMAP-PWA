@@ -3,12 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import {
-  checkDeviceStatus,
+  checkDeviceStatusDetailed,
   getDeviceFingerprint,
   listTransferRequests,
   approveTransfer,
   rejectTransfer,
   formatDevice,
+  isSimilarDevice,
+  getDeviceMeta,
   type TransferRequest,
 } from '@/services/device'
 import { isFaceEnrolled } from '@/services/face'
@@ -20,6 +22,8 @@ const loading = ref(true)
 const fingerprint = ref('')
 const bindingExists = ref(false)
 const boundToCurrentDevice = ref(false)
+const isTrusted = ref(false)
+const isSimilar = ref(false)
 const faceEnrolled = ref(false)
 const transfers = ref<TransferRequest[]>([])
 const busy = ref(false)
@@ -31,9 +35,12 @@ const outgoing = computed(() => transfers.value.filter((t) => t.direction === 'o
 onMounted(async () => {
   try {
     fingerprint.value = await getDeviceFingerprint()
-    const binding = await checkDeviceStatus()
+    const detailed = await checkDeviceStatusDetailed()
+    const binding = detailed.binding
     bindingExists.value = !!binding
-    boundToCurrentDevice.value = !!binding && binding.device_fingerprint === fingerprint.value
+    isTrusted.value = detailed.is_trusted
+    isSimilar.value = detailed.is_similar || (binding?.device_meta ? isSimilarDevice(binding.device_meta, getDeviceMeta()) : false)
+    boundToCurrentDevice.value = (!!binding && binding.device_fingerprint === fingerprint.value) || isTrusted.value || isSimilar.value
     faceEnrolled.value = await isFaceEnrolled(authStore.user?.id ?? 0)
     try {
       transfers.value = await listTransferRequests()
@@ -48,7 +55,7 @@ onMounted(async () => {
 })
 
 const bindingStatusText = computed(() => {
-  if (boundToCurrentDevice.value) return `${formatDevice()} is bound to your account.`
+  if (boundToCurrentDevice.value) return `${formatDevice()} is bound to your account${isSimilar.value && !isTrusted.value ? ' (same device, different browser — trusted via hardware match).' : '.'}`
   if (bindingExists.value) return 'Your account is bound to another device. Transfer the binding to this device to continue.'
   return 'No device is bound to your account.'
 })
@@ -56,6 +63,7 @@ const bindingStatusText = computed(() => {
 const primaryLabel = computed(() => {
   if (!bindingExists.value) return 'Bind This Device'
   if (!boundToCurrentDevice.value) return 'Transfer to This Device'
+  if (isSimilar.value && !isTrusted.value) return 'Bind Instantly (Same Device)'
   return 'Re-tie This Device'
 })
 
@@ -113,6 +121,9 @@ function formatDate(value: string | null): string {
             <p class="text-sm font-semibold text-gray-900">One-Device Binding</p>
             <p class="mt-0.5 text-xs text-gray-500">
               {{ bindingStatusText }}
+            </p>
+            <p v-if="isSimilar && !isTrusted && boundToCurrentDevice" class="mt-1 text-[11px] font-medium text-green-600">
+              Same hardware as your bound device — trusted via face verification, no old-device approval needed.
             </p>
           </div>
         </div>
