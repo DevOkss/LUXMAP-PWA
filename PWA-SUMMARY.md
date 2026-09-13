@@ -1,6 +1,24 @@
 # PWA-SOMS — Vue 3 Student Mobile App
 
-## Latest Session (September 5, 2026) — shared-VPS infra fixes; DEPLOYMENT.md added
+## Latest Session (September 13, 2026) — notification delete, Processed by on receipts, Centavos words + fetch fix
+
+> Backend pairing in `SOMS/SOMS-SUMMARY.md` (Sept 13). Deployed: PWA `ce72923` + fix `2e67699` pushed to `DevOkss/LUXMAP-PWA:main` (Vercel auto), backend `f213b81` SSH-deployed to `76.13.220.161` without proxy touch. Fixes the “delete did nothing” report and the `Processed by` / `00/100` receipt gaps.
+
+### Notification delete (all + single) — student fix
+- **Root cause of “delete did nothing”**: `stores/notificationStore.ts:15` `fetchNotifications` did `response.data.data || response.data.notifications` but Laravel API returns `{notifications:{data:[...]}, unread_count}` wrapped (Resource collection). So `notifications` became object `{data:[...]}` not array → `length`/`filter`/`slice` broke and deletes appeared to do nothing.
+- **Fix** (`src/stores/notificationStore.ts:15`): robust parsing handles `Array` / `{data:[...]}` nested for both `notifications` and `data` keys, then `notifications.value = list` (array). `unread_count` still prefers server value.
+- **Store** (`src/stores/notificationStore.ts:46`): `deleteNotification(id:string)` → `DELETE /api/notifications/{id}` then `filter`, `clearAll()` → `DELETE /api/notifications` then `[]`, both recompute `unreadCount`. `Notification.id` type fixed `number → string` (UUID) (`src/types/index.ts:302`).
+- **UI** (`src/pages/notifications/Index.vue:37`): per-card **Delete** (red, `stopPropagation` + `confirm`) alongside unread dot, header **Delete All** (red, `confirm` “cannot be undone” → `clearAll`). `visibleNotifications` `slice(0,visibleCount)` now works because list is array.
+- **Backend pairing**: `DELETE /api/notifications/{id}` (UUID) + `DELETE /api/notifications` (clear all) now live on `https://luxmap.devokss.online` (`SOMS` routes). `CORS` already `allowed_methods:['*']`, no header change.
+
+### Receipt Processed by + Centavos words
+- **Amount words** (`src/utils/amountWords.ts:1` new, mirrors `SOMS/resources/js/pages/admin/payments/Show.vue:140`): `550 → Five Hundred Fifty Pesos Only` (was `and 00/100`), `550.50 → ... and Fifty Centavos Only`, `1.01 → One Peso and One Centavo Only`. `receipts/Show.vue:6` imports helper and shows `${numberToWords(amount)} Only` italic under `₱` amount.
+- **Processed by** (`src/types/index.ts:261`): `PaymentSubmissionGroup.verified_by?` + `Receipt.payment.processedBy/verifiedBy/exemptedBy?` (`src/types/index.ts:261`). `payments/Submissions.vue:110` approved line now `Processed by OfficerName on date — payment recorded.` (was `Verified date`). `receipts/Show.vue:58` adds `Processed by {{issued_by||processedBy||verifiedBy}}` row when present; API now supplies `verified_by` (`SOMS/app/Http/Controllers/Api/PaymentController.php:100`) and `ReceiptResource` `issued_by` + `payment.verifiedBy` (`SOMS`).
+
+### Deploy
+- Pushed `ce72923` (delete+receipt+amountWords) + follow-up `2e67699` (fetch wrapper fix) → Vercel. Backend `f213b81` already live, so `DELETE /api/notifications` no longer 404.
+
+## Previous Session (September 5, 2026) — shared-VPS infra fixes; DEPLOYMENT.md added
 
 > **No PWA code changes.** Production incidents on the backend VPS were fixed (details in `SOMS/SOMS-SUMMARY.md` + `AVILA/labsync/DEPLOYMENT.md`): luxmap TLS vhost restored (cert errors), and a sibling-app cookie leak (`SESSION_DOMAIN=.devokss.online`) that caused "419 Page Expired" on POSTs across subdomains. If API calls suddenly fail with 419s or TLS errors, suspect the VPS proxy/certs — not this app. New **`DEPLOYMENT.md`** (repo root) documents the Vercel env contract (`VITE_API_URL`, `VITE_QR_KEY` ↔ backend `QR_ENCRYPTION_KEY`, `VITE_VAPID_PUBLIC_KEY`, CORS origin pairing).
 
