@@ -16,10 +16,33 @@ export const useNotificationStore = defineStore('notification', () => {
     loading.value = true
     try {
       const response = await api.get('/notifications')
-      notifications.value = response.data.data || response.data.notifications || []
+      const payload = response.data as Record<string, unknown>
+      let list: Notification[] = []
+      const maybeNotifications = payload.notifications as unknown
+      const maybeData = (payload as Record<string, unknown>).data as unknown
+      if (Array.isArray(maybeNotifications)) {
+        list = maybeNotifications as Notification[]
+      } else if (
+        maybeNotifications &&
+        typeof maybeNotifications === 'object' &&
+        'data' in (maybeNotifications as Record<string, unknown>) &&
+        Array.isArray((maybeNotifications as Record<string, unknown>).data)
+      ) {
+        list = (maybeNotifications as Record<string, unknown>).data as Notification[]
+      } else if (Array.isArray(maybeData)) {
+        list = maybeData as Notification[]
+      } else if (
+        maybeData &&
+        typeof maybeData === 'object' &&
+        'data' in (maybeData as Record<string, unknown>) &&
+        Array.isArray((maybeData as Record<string, unknown>).data)
+      ) {
+        list = (maybeData as Record<string, unknown>).data as Notification[]
+      }
+      notifications.value = list
       unreadCount.value =
-        typeof response.data.unread_count === 'number'
-          ? response.data.unread_count
+        typeof payload.unread_count === 'number'
+          ? (payload.unread_count as number)
           : notifications.value.filter((n) => !n.read_at).length
     } finally {
       loading.value = false
