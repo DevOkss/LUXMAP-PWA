@@ -26,7 +26,7 @@ export const useNotificationStore = defineStore('notification', () => {
     }
   }
 
-  async function markRead(id: number) {
+  async function markRead(id: string) {
     await api.post(`/notifications/${id}/read`)
     const notification = notifications.value.find((n) => n.id === id)
     if (notification) {
@@ -43,6 +43,18 @@ export const useNotificationStore = defineStore('notification', () => {
     recomputeUnread()
   }
 
+  async function deleteNotification(id: string) {
+    await api.delete(`/notifications/${id}`)
+    notifications.value = notifications.value.filter((n) => n.id !== id)
+    recomputeUnread()
+  }
+
+  async function clearAll() {
+    await api.delete('/notifications')
+    notifications.value = []
+    unreadCount.value = 0
+  }
+
   return {
     notifications,
     loading,
@@ -50,5 +62,7 @@ export const useNotificationStore = defineStore('notification', () => {
     fetchNotifications,
     markRead,
     markAllRead,
+    deleteNotification,
+    clearAll,
   }
 })

@@ -108,7 +108,7 @@ function statusLabel(status: string): string {
         </div>
 
         <p v-if="group.status === 'approved' && group.verified_at" class="text-xs text-green-600">
-          Verified {{ fmtDate(group.verified_at) }} — payment recorded.
+          Processed by {{ group.verified_by?.name || 'Officer' }} on {{ fmtDate(group.verified_at) }} — payment recorded.
         </p>
 
         <div v-if="group.status === 'rejected'" class="rounded-xl bg-red-50 border border-red-100 p-3">

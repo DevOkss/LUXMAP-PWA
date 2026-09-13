@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '@/services/api'
 import type { Receipt } from '@/types'
+import { numberToWords } from '@/utils/amountWords'
 
 const route = useRoute()
 const receipt = ref<Receipt | null>(null)
@@ -58,6 +59,11 @@ function statusLabel(status: string): string {
         <div class="flex justify-between">
           <span class="text-gray-500">Amount</span>
           <span class="text-gray-900 font-bold">₱{{ Number(receipt.payment.amount).toFixed(2) }}</span>
+        </div>
+        <p class="text-xs italic text-gray-500">{{ numberToWords(Number(receipt.payment.amount)) }} Only</p>
+        <div v-if="receipt.issued_by || receipt.payment.processedBy || receipt.payment.verifiedBy || receipt.payment.exemptedBy" class="flex justify-between">
+          <span class="text-gray-500">Processed by</span>
+          <span class="text-gray-900 font-medium">{{ (receipt.issued_by || receipt.payment.processedBy || receipt.payment.verifiedBy || receipt.payment.exemptedBy)?.name || '—' }}</span>
         </div>
         <div class="flex justify-between">
           <span class="text-gray-500">Status</span>

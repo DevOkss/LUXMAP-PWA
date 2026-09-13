@@ -268,6 +268,7 @@ export interface PaymentSubmissionGroup {
   organization: { id: number; name: string } | null
   academic_term: string | null
   verified_at: string | null
+  verified_by?: { id: number; name: string } | null
   submitted_at: string
   items: PaymentSubmissionItem[]
 }
@@ -293,14 +294,18 @@ export interface Receipt {
     payment_method: string | null
     status: string
     paid_at: string | null
+    isExempted?: boolean
     user?: { id: number; name: string; student_number: string | null } | null
     organization?: { id: number; name: string } | null
+    processedBy?: { id: number; name: string } | null
+    verifiedBy?: { id: number; name: string } | null
+    exemptedBy?: { id: number; name: string } | null
   } | null
   issued_by?: { id: number; name: string } | null
 }
 
 export interface Notification {
-  id: number
+  id: string
   type: string
   data: Record<string, unknown>
   read_at: string | null
