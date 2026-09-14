@@ -1,6 +1,21 @@
 # PWA-SOMS — Vue 3 Student Mobile App
 
-## Latest Session (September 13, 2026) — notification delete, Processed by on receipts, Centavos words + fetch fix
+## Latest Session (September 14, 2026) — one card per transaction, receipt breakdown, notification deep-links
+
+> Backend pairing in `SOMS/SOMS-SUMMARY.md` (Sept 14: one-receipt-per-batch + payment/shift notifications). Deployed: `e4726cd` pushed to `DevOkss/LUXMAP-PWA:main` (Vercel auto). No VPS/proxy changes.
+
+### Payment history — one record per transaction
+- **Grouping** (`src/pages/payments/History.vue`): flat `GET /payments` rows are grouped by `batch_id` into one card per transaction — `Payment #xxx`, org + term, `Fees: Tuition, Lab, Library`, `Total: ₱5,700 (N items)`, receipt number, date/method, expandable per-fee breakdown, `View receipt` → the single `receipts-show` id. Separate batches stay separate cards. Fixes “shows only the last receipt / multiple receipts for one payment”.
+- **Receipts** (`src/pages/receipts/Index.vue`, `Show.vue`): list and detail use the new `ReceiptResource` `total`/`items`/`payments` (batch sum + fee breakdown) instead of the single linked payment amount; detail shows the breakdown table + batch id + amount-in-words.
+
+### Notification deep-links (payment + shift)
+- **`src/pages/notifications/Index.vue`**: tapping a notification now `markRead`s then `router.push()`es its `url` (`data.url` or nested `data.data.url`) — payment notifications open `/receipts/{id}`, shift-review notifications open `/shift`. Rows with a link show `↗ Tap to view`.
+- **Types** (`src/types/index.ts`): `Payment` gains `uuid`/`batch_id`/`receipt.batch_id`; `Receipt` gains `batch_id`/`total`/`items`/`payments`.
+
+### Deploy
+- Pushed `e4726cd` (history grouping + receipt breakdown + deep-links + types) → Vercel auto-deploy; verified `https://luxmap-topaz.vercel.app/` 200. Backend `c2ea597`/`cafc647` already live, so `batch_id`/`total`/`items` are served.
+
+## Previous Session (September 13, 2026) — notification delete, Processed by on receipts, Centavos words + fetch fix
 
 > Backend pairing in `SOMS/SOMS-SUMMARY.md` (Sept 13). Deployed: PWA `ce72923` + fix `2e67699` pushed to `DevOkss/LUXMAP-PWA:main` (Vercel auto), backend `f213b81` SSH-deployed to `76.13.220.161` without proxy touch. Fixes the “delete did nothing” report and the `Processed by` / `00/100` receipt gaps.
 
