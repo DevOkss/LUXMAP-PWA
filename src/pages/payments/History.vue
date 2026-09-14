@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { usePaymentStore } from '@/stores/paymentStore'
 import { paymentChannelLabel as channelLabel } from '@/utils/paymentChannel'
 import { resolveImageUrl } from '@/utils/imageUrl'
+import type { Payment } from '@/types'
 
 const router = useRouter()
 const paymentStore = usePaymentStore()
@@ -24,10 +25,79 @@ const termOptions = computed(() => {
 
 const showingPending = computed(() => statusFilter.value === 'pending')
 
-const visiblePayments = computed(() => {
-  let list = paymentStore.payments
-  if (statusFilter.value === 'paid') list = list.filter((p) => p.status === 'paid')
-  if (termFilter.value !== 'all') list = list.filter((p) => (p.academic_term || '') === termFilter.value)
+// Group payments by batch_id → one record per transaction (requirement §4)
+interface PaymentGroup {
+  batch_id: string
+  uuid: string | null
+  payments: Payment[]
+  total: number
+  paid_at: string | null
+  created_at: string | null
+  status: string
+  isExempted: boolean
+  payment_method: string | null
+  reference_number: string | null
+  academic_term: string | null
+  organization: { id: number; name: string } | null
+  receipt: Payment['receipt'] | null
+  count: number
+}
+
+const groupedPayments = computed<PaymentGroup[]>(() => {
+  const map = new Map<string, Payment[]>()
+  for (const p of paymentStore.payments) {
+    const key = (p as unknown as { batch_id?: string }).batch_id || `p-${p.id}`
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(p)
+  }
+  const groups: PaymentGroup[] = []
+  for (const [batchId, list] of map.entries()) {
+    const sorted = [...list].sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+    const first = sorted[0]
+    const total = sorted.reduce((s, p) => s + Number(p.amount), 0)
+    // Find the batch receipt (one per transaction); after fix only first has it, but we scan all
+    const receipt = sorted.find((p) => p.receipt)?.receipt || first.receipt || null
+    const paidAt = sorted.reduce<string | null>((acc, p) => {
+      const d = p.paid_at || (p as unknown as { created_at?: string }).created_at || null
+      if (!d) return acc
+      if (!acc) return d
+      return new Date(d) > new Date(acc) ? d : acc
+    }, null)
+    const createdAt = (first as unknown as { created_at?: string }).created_at || paidAt
+    const anyExempted = sorted.some((p) => p.isExempted || p.status === 'exempted')
+    const status = anyExempted ? 'exempted' : sorted.every((p) => p.status === 'paid') ? 'paid' : (first.status as string)
+    groups.push({
+      batch_id: batchId,
+      uuid: (first as unknown as { uuid?: string }).uuid || null,
+      payments: sorted,
+      total,
+      paid_at: paidAt,
+      created_at: createdAt as string | null,
+      status,
+      isExempted: anyExempted,
+      payment_method: first.payment_method || null,
+      reference_number: first.reference_number || null,
+      academic_term: first.academic_term || null,
+      organization: first.organization || null,
+      receipt,
+      count: sorted.length,
+    })
+  }
+  // Newest first
+  return groups.sort((a, b) => {
+    const da = a.paid_at || a.created_at || ''
+    const db = b.paid_at || b.created_at || ''
+    return new Date(db).getTime() - new Date(da).getTime()
+  })
+})
+
+const visibleGrouped = computed(() => {
+  let list = groupedPayments.value
+  if (statusFilter.value === 'paid') list = list.filter((g) => g.status === 'paid')
+  else if (statusFilter.value === 'all') {
+    // keep all, but "all" includes exempted too; original filter "paid" vs "all"
+  }
+  if (termFilter.value !== 'all') list = list.filter((g) => (g.academic_term || '') === termFilter.value)
   return list
 })
 
@@ -38,7 +108,7 @@ const visibleSubmissions = computed(() => {
 })
 
 const isEmpty = computed(() =>
-  showingPending.value ? visibleSubmissions.value.length === 0 : visiblePayments.value.length === 0,
+  showingPending.value ? visibleSubmissions.value.length === 0 : visibleGrouped.value.length === 0,
 )
 
 const loading = computed(() => paymentStore.loading)
@@ -87,6 +157,17 @@ function submissionItemLabel(item: { fee?: { name?: string } | null; event?: { t
   if (item.fee?.name) return item.fee.name
   if (item.event?.title) return item.event.title
   return item.fee_type === 'penalty' ? 'Penalty' : 'Fee'
+}
+
+function goToReceipt(group: PaymentGroup) {
+  if (group.receipt?.id) {
+    router.push({ name: 'receipts-show', params: { id: group.receipt.id } })
+  } else if (group.receipt?.receipt_number) {
+    // fallback: go to receipts list if id missing
+    router.push({ name: 'receipts' })
+  } else {
+    router.push({ name: 'receipts' })
+  }
 }
 </script>
 
@@ -180,29 +261,49 @@ function submissionItemLabel(item: { fee?: { name?: string } | null; event?: { t
       </div>
     </div>
 
-    <!-- Confirmed payments -->
+    <!-- Confirmed payments — ONE card per transaction (batch) -->
     <div v-else class="space-y-2">
-      <div v-for="payment in visiblePayments" :key="payment.id" class="bg-white border border-gray-200 rounded-xl p-4">
+      <div v-for="group in visibleGrouped" :key="group.batch_id" class="bg-white border border-gray-200 rounded-xl p-4">
         <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-sm font-semibold text-gray-900">{{ itemName(payment) }}</p>
-            <p class="text-xs text-gray-500 mt-0.5">{{ payment.organization?.name }}</p>
-            <p class="text-sm font-bold text-gray-900 mt-1">{{ `₱${Number(payment.amount).toFixed(2)}` }}</p>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold text-gray-900">
+              Payment #{{ group.receipt?.receipt_number ? group.receipt.receipt_number.slice(-4) : group.batch_id.slice(0, 8).toUpperCase() }}
+            </p>
+            <p class="text-xs text-gray-500 mt-0.5">{{ group.organization?.name || 'Organization' }} <template v-if="group.academic_term">· {{ group.academic_term }}</template></p>
+            <p class="text-xs text-gray-400 mt-1">Fees: {{ group.payments.map(itemName).join(', ') }}</p>
+            <p class="text-sm font-bold text-gray-900 mt-1">Total: ₱{{ group.total.toFixed(2) }} <span v-if="group.count > 1" class="text-xs font-normal text-gray-500">· {{ group.count }} items</span></p>
             <p class="text-xs text-gray-400 mt-1">
-              {{ fmtDate(payment.paid_at || payment.created_at) }} · {{ methodLabel(payment.payment_method) }}
-              <template v-if="payment.reference_number"> · Ref {{ payment.reference_number }}</template>
+              {{ fmtDate(group.paid_at || group.created_at) }} · {{ methodLabel(group.payment_method) }}
+              <template v-if="group.receipt?.receipt_number"> · Receipt {{ group.receipt.receipt_number }}</template>
+              <template v-if="group.reference_number"> · Ref {{ group.reference_number }}</template>
             </p>
           </div>
-          <span class="text-xs font-medium px-2 py-0.5 rounded-full shrink-0" :class="statusStyle(payment.status)">
-            {{ statusLabel(payment.status) }}
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full shrink-0" :class="statusStyle(group.status)">
+            {{ statusLabel(group.status) }}
           </span>
         </div>
+        <div class="mt-3 rounded-xl bg-gray-50 p-3 space-y-1.5">
+          <p v-for="pay in group.payments" :key="pay.id" class="flex items-center justify-between text-sm">
+            <span class="text-gray-700">{{ itemName(pay) }}</span>
+            <span class="font-semibold text-gray-900">{{ `₱${Number(pay.amount).toFixed(2)}` }}</span>
+          </p>
+          <p class="flex items-center justify-between text-sm border-t border-gray-200 pt-1.5 font-bold">
+            <span>Total</span><span>₱{{ group.total.toFixed(2) }}</span>
+          </p>
+        </div>
         <button
-          v-if="payment.receipt"
-          @click="router.push({ name: 'receipts' })"
+          v-if="group.receipt"
+          @click="goToReceipt(group)"
           class="mt-3 text-xs font-semibold text-primary-600"
         >
-          View receipt {{ payment.receipt.receipt_number }}
+          View receipt {{ group.receipt.receipt_number }}
+        </button>
+        <button
+          v-else
+          @click="goToReceipt(group)"
+          class="mt-3 text-xs font-semibold text-gray-500"
+        >
+          Receipt pending (batch {{ group.batch_id.slice(0,8) }})
         </button>
       </div>
     </div>

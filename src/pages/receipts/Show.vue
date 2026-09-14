@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '@/services/api'
 import type { Receipt } from '@/types'
@@ -19,6 +19,14 @@ onMounted(async () => {
   }
 })
 
+const total = computed(() => {
+  if (!receipt.value) return 0
+  if (receipt.value.total != null) return Number(receipt.value.total)
+  if (receipt.value.payment) return Number(receipt.value.payment.amount)
+  return 0
+})
+const items = computed(() => receipt.value?.items || [])
+
 function fmtDate(d: string | null | undefined): string {
   if (!d) return '—'
   return new Date(d).toLocaleString('en', {
@@ -34,6 +42,12 @@ function statusLabel(status: string): string {
   if (status === 'paid') return 'Paid'
   if (status === 'exempted') return 'Exempted'
   return status
+}
+
+function itemLabel(item: { fee?: { name?: string } | null; event?: { title?: string } | null; fee_type?: string }): string {
+  if (item.fee?.name) return item.fee.name
+  if (item.event?.title) return item.event.title
+  return item.fee_type === 'penalty' ? 'Penalty' : 'Fee'
 }
 </script>
 
@@ -53,14 +67,28 @@ function statusLabel(status: string): string {
       <div class="text-center border-b border-gray-200 pb-4 mb-4">
         <p class="text-lg font-bold text-gray-900">{{ receipt.receipt_number }}</p>
         <p class="text-xs text-gray-500">{{ fmtDate(receipt.issued_at) }}</p>
+        <p v-if="receipt.batch_id" class="text-[10px] text-gray-400 font-mono mt-1">Batch {{ receipt.batch_id.slice(0, 8).toUpperCase() }}</p>
       </div>
 
-      <div v-if="receipt.payment" class="space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span class="text-gray-500">Amount</span>
-          <span class="text-gray-900 font-bold">₱{{ Number(receipt.payment.amount).toFixed(2) }}</span>
+      <div v-if="receipt.payment" class="space-y-3 text-sm">
+        <!-- Breakdown table: one receipt → many fees (requirement §3 & §5) -->
+        <div v-if="items.length" class="rounded-xl bg-gray-50 p-3 space-y-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Fee Breakdown</p>
+          <div v-for="item in items" :key="item.id ?? item.fee?.name ?? item.event?.title" class="flex items-center justify-between text-sm">
+            <span class="text-gray-700">{{ itemLabel(item) }}</span>
+            <span class="font-semibold text-gray-900">₱{{ Number(item.amount).toFixed(2) }}</span>
+          </div>
+          <div class="flex items-center justify-between text-sm border-t border-gray-200 pt-2 font-bold">
+            <span>Total</span><span>₱{{ total.toFixed(2) }}</span>
+          </div>
         </div>
-        <p class="text-xs italic text-gray-500">{{ numberToWords(Number(receipt.payment.amount)) }} Only</p>
+        <div v-else class="flex justify-between">
+          <span class="text-gray-500">Amount</span>
+          <span class="text-gray-900 font-bold">₱{{ total.toFixed(2) }}</span>
+        </div>
+
+        <p class="text-xs italic text-gray-500">{{ numberToWords(total) }} Only</p>
+
         <div v-if="receipt.issued_by || receipt.payment.processedBy || receipt.payment.verifiedBy || receipt.payment.exemptedBy" class="flex justify-between">
           <span class="text-gray-500">Processed by</span>
           <span class="text-gray-900 font-medium">{{ (receipt.issued_by || receipt.payment.processedBy || receipt.payment.verifiedBy || receipt.payment.exemptedBy)?.name || '—' }}</span>

@@ -194,6 +194,8 @@ export interface Penalty {
 
 export interface Payment {
   id: number
+  uuid?: string | null
+  batch_id?: string | null
   user_id: number
   organization_id: number
   academic_term_id: number | null
@@ -220,6 +222,7 @@ export interface Payment {
   receipt?: {
     id: number
     receipt_number: string
+    batch_id?: string | null
     issued_at: string | null
   }
   absences?: number
@@ -285,11 +288,31 @@ export interface OutstandingPayload {
 export interface Receipt {
   id: number
   payment_id: number
+  batch_id?: string | null
   receipt_number: string
   issued_at: string | null
   notes: string | null
+  total?: number | null
+  items?: {
+    id: number
+    fee_type: string
+    amount: number
+    status?: string
+    isExempted?: boolean
+    fee?: { id: number; name: string } | null
+    event?: { id: number; title: string; event_date?: string } | null
+  }[] | null
+  payments?: {
+    id: number
+    uuid?: string
+    fee_type: string
+    amount: number
+    fee?: { id: number; name: string } | null
+    event?: { id: number; title: string } | null
+  }[] | null
   payment?: {
     id: number
+    batch_id?: string | null
     amount: number
     payment_method: string | null
     status: string

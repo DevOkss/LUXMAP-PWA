@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useNotificationStore } from '@/stores/notificationStore'
+
+const router = useRouter()
 
 const notificationStore = useNotificationStore()
 
@@ -32,6 +35,22 @@ function notificationBody(notification: { data: Record<string, unknown> }): stri
   if (typeof body === 'string' && body.trim()) return body
   const message = notification.data?.message
   return typeof message === 'string' ? message : ''
+}
+
+function getNotificationUrl(notification: { data: Record<string, unknown> }): string | null {
+  const direct = notification.data?.url
+  if (typeof direct === 'string' && direct.trim()) return direct
+  const nested = (notification.data?.data as Record<string, unknown> | undefined)?.url
+  if (typeof nested === 'string' && nested.trim()) return nested
+  return null
+}
+
+async function handleNotificationClick(notification: { id: string; data: Record<string, unknown> }) {
+  await notificationStore.markRead(notification.id)
+  const url = getNotificationUrl(notification)
+  if (url) {
+    router.push(url)
+  }
 }
 
 async function confirmDelete(id: string, event: Event) {
@@ -80,19 +99,21 @@ async function confirmClearAll() {
       <div
         v-for="notification in visibleNotifications"
         :key="notification.id"
-        @click="notificationStore.markRead(notification.id)"
+        @click="handleNotificationClick(notification)"
         class="bg-white border rounded-xl p-4 cursor-pointer transition-colors"
         :class="notification.read_at ? 'border-gray-200' : 'border-primary-200 bg-primary-50/50'"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium" :class="notification.read_at ? 'text-gray-900' : 'text-primary-900'">
+            <p class="text-sm font-medium flex items-center gap-1" :class="notification.read_at ? 'text-gray-900' : 'text-primary-900'">
               {{ notificationTitle(notification) }}
+              <span v-if="getNotificationUrl(notification)" class="text-xs text-primary-600">↗</span>
             </p>
             <p v-if="notificationBody(notification)" class="text-xs text-gray-500 mt-0.5">
               {{ notificationBody(notification) }}
             </p>
             <p class="text-xs text-gray-400 mt-1">{{ new Date(notification.created_at).toLocaleString() }}</p>
+            <p v-if="getNotificationUrl(notification)" class="text-xs text-primary-600 mt-1">Tap to view</p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button
