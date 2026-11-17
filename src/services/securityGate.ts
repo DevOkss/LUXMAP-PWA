@@ -26,9 +26,10 @@ export interface CachedSecurityGate {
 }
 
 /**
- * Written after the login/onboarding steps and before allowing entry into
- * the app. The server is the authority on which device the account is bound
- * to; when offline we fall back to the locally cached binding.
+ * Written after login (and any required first-login password change) and
+ * before allowing entry into the app. The server is the authority on which
+ * device the account is bound to; when offline we fall back to the locally
+ * cached binding.
  *
  * Order of requirements (first missing step wins):
  *   1. face enrollment   — face verification must exist before anything else

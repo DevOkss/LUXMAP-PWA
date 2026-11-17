@@ -23,9 +23,9 @@ const router = createRouter({
           meta: { guest: true },
         },
         {
-          path: 'onboarding',
-          name: 'onboarding',
-          component: () => import('@/pages/auth/Onboarding.vue'),
+          path: 'change-password',
+          name: 'change-password',
+          component: () => import('@/pages/auth/ChangePassword.vue'),
           meta: { requiresAuth: true },
         },
       ],
@@ -143,12 +143,6 @@ const router = createRouter({
           meta: { back: 'Dashboard', backRoute: 'dashboard' },
         },
         {
-          path: 'shift',
-          name: 'shift-request',
-          component: () => import('@/pages/shift/Request.vue'),
-          meta: { back: 'Profile', backRoute: 'profile' },
-        },
-        {
           path: 'security',
           name: 'security',
           component: () => import('@/pages/security/Index.vue'),
@@ -199,7 +193,7 @@ const router = createRouter({
   ],
 })
 
-function getStoredUser(): { id?: number; needs_onboarding?: boolean } | null {
+function getStoredUser(): { id?: number; must_change_password?: boolean } | null {
   try {
     return JSON.parse(localStorage.getItem('user') || 'null')
   } catch {
@@ -227,15 +221,15 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  const needsOnboarding = user?.needs_onboarding !== false
+  const mustChangePassword = user?.must_change_password === true
 
   if (to.name === 'login') {
-    next({ name: needsOnboarding ? 'onboarding' : 'dashboard' })
+    next({ name: mustChangePassword ? 'change-password' : 'dashboard' })
     return
   }
 
-  if (to.name === 'onboarding') {
-    if (needsOnboarding) {
+  if (to.name === 'change-password') {
+    if (mustChangePassword) {
       next()
     } else {
       next({ name: 'dashboard' })
@@ -243,8 +237,8 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  if (to.meta.requiresAuth && needsOnboarding) {
-    next({ name: 'onboarding' })
+  if (to.meta.requiresAuth && mustChangePassword) {
+    next({ name: 'change-password' })
     return
   }
 

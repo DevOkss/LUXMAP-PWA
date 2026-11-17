@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import api from '@/services/api'
 import { unsubscribeFromPush } from '@/services/push'
 import { useSecurityStore } from '@/stores/securityStore'
-import type { OnboardingData, User, Workspace } from '@/types'
+import type { User, Workspace } from '@/types'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(JSON.parse(localStorage.getItem('user') || 'null'))
@@ -14,7 +14,6 @@ export const useAuthStore = defineStore('auth', () => {
   const currentWorkspace = ref<Workspace | null>(
     JSON.parse(localStorage.getItem('current_workspace') || 'null'),
   )
-  const onboardingData = ref<OnboardingData | null>(null)
 
   const isAuthenticated = computed(() => !!token.value)
   const isOnline = computed(() => navigator.onLine)
@@ -42,23 +41,21 @@ export const useAuthStore = defineStore('auth', () => {
     return response.data
   }
 
-  async function fetchOnboarding() {
-    const response = await api.get('/onboarding')
-    onboardingData.value = response.data
-    return onboardingData.value
-  }
+  async function changePassword(
+    currentPassword: string,
+    password: string,
+    passwordConfirmation: string,
+  ) {
+    const response = await api.post('/change-password', {
+      current_password: currentPassword,
+      password,
+      password_confirmation: passwordConfirmation,
+    })
 
-  async function completeOnboarding(payload: { institute: string; program: string }) {
-    const response = await api.patch('/onboarding', payload)
-    persistUser(response.data.user)
-    return response.data.user
-  }
-
-  async function refreshFromInstitution() {
-    const response = await api.post('/me/refresh')
     if (response.data.user) {
       persistUser(response.data.user)
     }
+
     return response.data
   }
 
@@ -96,7 +93,6 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     workspaces.value = []
     currentWorkspace.value = null
-    onboardingData.value = null
     localStorage.removeItem('auth_token')
     localStorage.removeItem('user')
     localStorage.removeItem('current_workspace')
@@ -121,7 +117,6 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     workspaces.value = []
     currentWorkspace.value = null
-    onboardingData.value = null
     localStorage.removeItem('auth_token')
     localStorage.removeItem('user')
     localStorage.removeItem('current_workspace')
@@ -136,13 +131,10 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     workspaces,
     currentWorkspace,
-    onboardingData,
     isAuthenticated,
     isOnline,
     login,
-    fetchOnboarding,
-    completeOnboarding,
-    refreshFromInstitution,
+    changePassword,
     fetchWorkspaces,
     switchWorkspace,
     fetchUser,

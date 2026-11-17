@@ -2,12 +2,12 @@
 
 **Live at:** https://luxmap-topaz.vercel.app
 **Backend:** https://luxmap.devokss.online — Laravel SOMS, see that repo's `DEPLOYMENT.md`
-(`D:\2026 FREELANCE\SOMS`). The backend is NOT on Vercel; it lives on the shared
+(`D:\2026 FREELANCE\PATIAN\SOMS`). The backend is NOT on Vercel; it lives on the shared
 Hostinger VPS `76.13.220.161` behind the LabSync Docker proxy.
 
 ## Build & serve
 
-Static Vite + React PWA. `vercel.json` SPA-rewrites everything to
+Static Vite + Vue 3 PWA. `vercel.json` SPA-rewrites everything to
 `index.html` and sets `sw.js` to no-cache (service-worker updates).
 
 ```bash
@@ -20,7 +20,7 @@ Deploy via the Vercel dashboard/CLI (`vercel --prod`) as usual for this project.
 
 | Var | Value | Notes |
 |---|---|---|
-| `VITE_API_URL` | `https://luxmap.devokss.online` | Backend base; the app appends `/api` itself. Local dev leaves it empty (Vite proxies `/api`). |
+| `VITE_API_URL` | `https://luxmap.devokss.online/api` | **Must include `/api`** — the app uses this as the axios baseURL verbatim (service calls are `api.post('/login')`; `src/config/app.ts` fallback already ends in `/api`). Local dev leaves it empty (Vite proxies `/api`). |
 | `VITE_QR_KEY` | 64-char hex | MUST equal the VPS `/var/www/soms/.env` `QR_ENCRYPTION_KEY` — QR scan payloads are AES-decrypted with it. |
 | `VITE_VAPID_PUBLIC_KEY` | public key pair | MUST match backend `VAPID_PUBLIC_KEY` (Web Push). |
 

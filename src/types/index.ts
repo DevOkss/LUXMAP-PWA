@@ -9,15 +9,10 @@ export interface User {
   year_level: number | null
   sex: string | null
   profile_photo: string | null
-  is_active: boolean
-  needs_onboarding: boolean
+  is_enrolled: boolean
+  must_change_password: boolean
+  role?: string
   academic_term?: string | null
-}
-
-export interface OnboardingData {
-  needs_onboarding: boolean
-  institutes: Record<string, string>
-  programs: Record<string, string[]>
 }
 
 export interface Workspace {

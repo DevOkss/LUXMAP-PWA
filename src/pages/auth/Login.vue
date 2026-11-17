@@ -22,8 +22,8 @@ async function submit() {
     const data = await authStore.login(form.value.studentNumber, form.value.password)
     // Every fresh login requires a fresh face verification.
     securityStore.resetVerified()
-    if (data.user?.needs_onboarding) {
-      router.push({ name: 'onboarding' })
+    if (data.user?.must_change_password) {
+      router.push({ name: 'change-password' })
       return
     }
     const gate = await runSecurityGate(data.user.id)

@@ -22,7 +22,7 @@ onMounted(async () => {
   if (syncStore.queueCount > 0) {
     showSyncPrompt.value = true
   }
-  authStore.refreshFromInstitution().catch(() => {})
+  authStore.fetchUser().catch(() => {})
   if (!authStore.currentWorkspace?.role || authStore.workspaces.length === 0) {
     await authStore.fetchWorkspaces().catch(() => {})
     if (!authStore.currentWorkspace?.role && authStore.workspaces.length > 0) {

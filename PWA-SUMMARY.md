@@ -1,6 +1,27 @@
 # PWA-SOMS — Vue 3 Student Mobile App
 
-## Latest Session (September 14, 2026) — one card per transaction, receipt breakdown, notification deep-links
+## Latest Session (November 13, 2026) — first-login password change; onboarding + shift requests removed
+
+> Backend pairing in `SOMS/SOMS-SUMMARY.md` (local-only auth + forced password change + Student Import). **Deploy the PWA before the backend**: the new `UserResource` drops `needs_onboarding`, and the old PWA treats a missing flag as `true` (would redirect to the removed onboarding flow). New PWA + old backend is safe.
+
+### Forced first-login password change
+- **New `src/pages/auth/ChangePassword.vue`** (route `/auth/change-password`, name `change-password`): temporary password → new password + confirmation (min 8, must differ), posts `POST /api/change-password` through `authStore.changePassword()`, offers "Sign out instead", then enters the app.
+- **Login** (`src/pages/auth/Login.vue`): a successful login with `user.must_change_password` routes to `change-password` **before** the security gate; otherwise the normal gate flow runs.
+- **Router** (`src/router/index.ts`): every `requiresAuth` route redirects to `change-password` while the flag is set; the screen redirects out to dashboard once cleared; signed-in users can't revisit `login`.
+- **`authStore`**: removed `onboardingData` / `fetchOnboarding()` / `completeOnboarding()` / `refreshFromInstitution()`; added `changePassword(current, new, confirmation)`. `AppLayout` + `Profile` now refresh via `fetchUser()` (`GET /api/user`) because `/api/me/refresh` was removed.
+
+### Onboarding + shift requests removed
+- Deleted `src/pages/auth/Onboarding.vue`, `src/pages/shift/Request.vue`, `src/services/shift.ts`, the profile "Request Shift" card, and their routes. The old `/onboarding` API and `/shift-requests` API no longer exist on the backend.
+- **Types** (`src/types/index.ts`): `OnboardingData` removed; `User` gains `is_enrolled`, `must_change_password`, optional `role`, and drops `is_active` / `needs_onboarding`.
+- **`securityGate.ts`** comments updated: the gate is evaluated after login **and** any required password change.
+
+### Tests / build
+- `npm run build` (vue-tsc + Vite) clean. Backend suite **325 passed (1524 assertions)**.
+
+### Deploy (Nov 13)
+- Last live PWA commit before this session: `e0bcba8`. Push to `DevOkss/LUXMAP-PWA:main` → Vercel auto-deploy. This session's build ships the change-password screen and removes onboarding/shift.
+
+## Previous Session (September 14, 2026) — one card per transaction, receipt breakdown, notification deep-links
 
 > Backend pairing in `SOMS/SOMS-SUMMARY.md` (Sept 14: one-receipt-per-batch + payment/shift notifications). Deployed: `e4726cd` pushed to `DevOkss/LUXMAP-PWA:main` (Vercel auto). No VPS/proxy changes.
 
@@ -334,7 +355,7 @@
 ### Route Structure
 ```
 /auth/login          — Student ID + password login
-/auth/onboarding     — Institute + program selection
+/auth/change-password — Forced first-login password change (temporary → new)
 
 / (Student — AppLayout)
 ├── /dashboard       — Quick access + upcoming events + pending fees
@@ -368,10 +389,12 @@
 
 ### Route Guards
 ```ts
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   // 1. Auth token check → redirect to login
-  // 2. Onboarding check → redirect to onboarding
-  // 3. Role check: if meta.role === 'officer' && ws.role === 'student' → redirect to dashboard
+  // 2. must_change_password check → force /auth/change-password on every
+  //    protected route (login/change-password have dedicated branches)
+  // 3. Security gate: face enrolled + device bound + face verified this session
+  // 4. Role check (legacy guard kept; officer routes were removed Aug 7)
   next()
 })
 ```
@@ -414,13 +437,13 @@ primary: {
 
 ### authStore
 ```
-user, token, workspaces[], currentWorkspace, onboardingData
-login(), logout(), fetchOnboarding(), completeOnboarding(),
-refreshFromInstitution(), fetchWorkspaces(), switchWorkspace(), fetchUser()
+user, token, workspaces[], currentWorkspace
+login(), changePassword(current, new, confirmation), logout(),
+fetchWorkspaces(), switchWorkspace(), fetchUser()
 ```
-- Workspaces persisted to localStorage on login
-- Loaded from localStorage on refresh
-- Re-fetched from API on mount if stale
+- Workspaces persisted to localStorage on login; loaded from localStorage on refresh; re-fetched if stale
+- `user.must_change_password` is persisted after login and drives the router guard; `changePassword()` posts `/api/change-password` and persists the returned user (flag cleared)
+- `fetchUser()` (`GET /api/user`) replaces the removed `refreshFromInstitution()` / `/api/me/refresh` on AppLayout + Profile mount
 
 ### eventStore
 ```
@@ -517,7 +540,7 @@ All state changes logged in `event_logs` table (user_id, action, details, timest
 | Page | Layout | Key Features |
 |---|---|---|
 | `auth/Login` | AuthLayout | Student ID + password form, green accent |
-| `auth/Onboarding` | AuthLayout | Institute → Program cascade select |
+| `auth/ChangePassword` | AuthLayout | **NEW (Nov 13)** temporary → new password (min 8, confirmation, must differ), sign-out fallback |
 | `dashboard/Index` | AppLayout | Quick access grid, upcoming events (date badges), pending fees, location permission modal |
 | `events/OrgIndex` | FullPageLayout | **NEW** "My Organizations" hub (SSC/ISC/SRO cards) |
 | `events/OrgEvents` | FullPageLayout | **NEW** per-org event browser, list/calendar toggle, status filter, live clock |
@@ -587,7 +610,7 @@ All state changes logged in `event_logs` table (user_id, action, details, timest
 ## 13. Known Issues & Dead Code
 
 **Known issues:**
-- **Missing PWA icon**: `public/icons/` is empty but the manifest + Workbox `includeAssets` reference `icons/icon.png` → install icon / manifest icon is broken.
+- **Resolved (Aug 10)**: install icons now exist — `public/icons/icon-192x192.png` + `icon-512x512.png` (+ `luxmap.ico`/`luxmap.png`).
 - **Stray log**: `AppLayout.vue` logs `roleLabel` on mount (`console.log`).
 - **API 401 handling**: response interceptor clears token and logs out; the `isRefreshing`/`failedQueue` scaffolding has no actual refresh call.
 - **Attendance model on MySQL**: backend's attendances unique constraint is `[qr_configuration_id, user_id]` (MySQL). The PWA sends `qr_configuration_id` everywhere — matches.
