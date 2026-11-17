@@ -18,8 +18,8 @@
 ### Tests / build
 - `npm run build` (vue-tsc + Vite) clean. Backend suite **325 passed (1524 assertions)**.
 
-### Deploy (Nov 13)
-- Last live PWA commit before this session: `e0bcba8`. Push to `DevOkss/LUXMAP-PWA:main` → Vercel auto-deploy. This session's build ships the change-password screen and removes onboarding/shift.
+### Deploy (Nov 13) — SHIPPED
+- Commit `40e543a` pushed to `DevOkss/LUXMAP-PWA:main` → Vercel auto-deploy (before the backend). Verified live bundle `assets/index-C9b20c9W.js` contains `change-password`, has no `auth/onboarding` route, and embeds the `https://luxmap.devokss.online/api` fallback; site returns 200. Backend then shipped as SOMS `b30e9e4`.
 
 ## Previous Session (September 14, 2026) — one card per transaction, receipt breakdown, notification deep-links
 
